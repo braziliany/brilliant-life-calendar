@@ -45,6 +45,13 @@ function textNode(node, value) {
   return allNodes(node).find((item) => item.type === "text" && item.text === value);
 }
 
+function largeDayCells(widget, tokens) {
+  return allNodes(widget).filter((node) => (
+    node.size?.width === tokens.layout.largeCellWidth
+    && node.size?.height === tokens.layout.largeCellHeight
+  ));
+}
+
 function luminance(hex) {
   const channels = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
   const [red, green, blue] = channels.map((value) => (
@@ -132,7 +139,7 @@ test("Small renderer uses a purpose-built today and next-important-date composit
   assert.doesNotMatch(output, /undefined|null|NaN/);
 });
 
-test("Large renderer prioritizes a compact header and summary before the airy calendar", () => {
+test("Large v2 uses a lightweight header and single-line summary before the calendar", () => {
   const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
   const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, {
     source: "network",
@@ -141,8 +148,8 @@ test("Large renderer prioritizes a compact header and summary before the airy ca
   const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
   const output = textContent(widget).join(" ");
   assert.ok(output.indexOf("PULSE") < output.indexOf("2026年9月"));
-  assert.equal(textNode(widget, "PULSE").font.size, 10);
-  assert.equal(textNode(widget, "2026年9月").font.size, 12);
+  assert.equal(textNode(widget, "PULSE").font.size, 9);
+  assert.equal(textNode(widget, "2026年9月").font.size, 11);
   assert.match(output, /工作/);
   assert.match(output, /节日/);
   assert.match(output, /中秋/);
@@ -153,7 +160,29 @@ test("Large renderer prioritizes a compact header and summary before the airy ca
   assert.doesNotMatch(output, /undefined|null|NaN/);
 });
 
-test("Large calendar uses color, small markers and a light today outline", () => {
+test("Large v2 always renders a complete 6 by 7 calendar with muted adjacent dates", () => {
+  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
+  const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, {
+    source: "network",
+    now: new Date("2026-09-13T01:04:00.000Z"),
+  });
+  const summaryBeforeRender = structuredClone(vm.summary);
+  const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
+  const tokens = globalThis.__PulseCalendarRuntime.designTokens;
+  const cells = largeDayCells(widget, tokens);
+  assert.equal(cells.length, 42);
+  assert.equal(
+    widget.children.filter((node) => (
+      node.type === "spacer" && node.text === String(tokens.spacing.largeCalendarRow)
+    )).length,
+    5,
+  );
+  assert.equal(textNode(cells[0], "31").textColor.hex, tokens.mutedText);
+  assert.equal(textNode(cells[41], "11").textColor.hex, tokens.mutedText);
+  assert.deepEqual(vm.summary, summaryBeforeRender);
+});
+
+test("Large v2 keeps status color and tiny marker semantics without repeated rest labels", () => {
   const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
   const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, {
     source: "network",
@@ -164,15 +193,46 @@ test("Large calendar uses color, small markers and a light today outline", () =>
   assert.equal(textNode(widget, "25").textColor.hex, tokens.holidayRed);
   assert.equal(textNode(widget, "20").textColor.hex, tokens.workCyan);
   assert.equal(textNode(widget, "26").textColor.hex, tokens.adjustedRestYellow);
+  assert.equal(allNodes(widget).filter((node) => node.type === "text" && node.text === "休").length, 1);
+  assert.equal(allNodes(widget).filter((node) => node.type === "text" && node.text === "中秋").length, 1);
+  assert.ok(allNodes(widget).some((node) => (
+    node.backgroundColor?.hex === tokens.adjustedRestYellow
+    && node.size?.width === tokens.layout.largeMarkerSize
+    && node.size?.height === tokens.layout.largeMarkerSize
+  )));
+});
+
+test("Large v2 deduplicates a continuous holiday label across all holiday days", () => {
+  const raw = calendarFixture();
+  for (const date of ["2026-09-25", "2026-09-26", "2026-09-27"]) {
+    Object.assign(raw.days.find((day) => day.date === date), {
+      isHoliday: true,
+      holidayName: "中秋",
+    });
+  }
+  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(raw, "2026-09");
+  const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
+  const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
+  assert.equal(allNodes(widget).filter((node) => node.type === "text" && node.text === "中秋").length, 1);
+});
+
+test("Large v2 today outline hugs the date and coexists with a holiday marker", () => {
+  const raw = calendarFixture({ today: "2026-09-25" });
+  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(raw, "2026-09");
+  const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
+  const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
+  const tokens = globalThis.__PulseCalendarRuntime.designTokens;
+  const todayCell = largeDayCells(widget, tokens).find((cell) => textContent(cell).includes("25"));
   const today = allNodes(widget).find((node) => node.borderColor?.hex === tokens.pulsePurple);
   assert.ok(today);
   assert.equal(today.borderWidth, 1);
   assert.equal(today.backgroundColor, undefined);
-  assert.match(textContent(today).join(" "), /13/);
-  assert.ok(allNodes(widget).some((node) => (
-    node.backgroundColor?.hex === tokens.adjustedRestYellow
-    && node.size?.width === tokens.layout.largeMarkerSize
-  )));
+  assert.equal(today.size.width, tokens.layout.largeDateWidth);
+  assert.equal(today.size.height, tokens.layout.largeDateHeight);
+  assert.ok(today.size.width < tokens.layout.largeCellWidth);
+  assert.ok(today.size.height < tokens.layout.largeCellHeight);
+  assert.match(textContent(today).join(" "), /25/);
+  assert.match(textContent(todayCell).join(" "), /中秋/);
 });
 
 test("successful widget roots open the native iOS Calendar", () => {

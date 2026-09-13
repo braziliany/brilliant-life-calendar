@@ -270,10 +270,10 @@
       headerToContent: 4,
       headerToHero: 13,
       section: 9,
-      largeHeaderToStats: 6,
-      largeStatsToWeekday: 12,
-      largeWeekdayToGrid: 6,
-      largeCalendarRow: 5,
+      largeHeaderToStats: 2,
+      largeStatsToWeekday: 6,
+      largeWeekdayToGrid: 4,
+      largeCalendarRow: 7,
       column: 2,
       row: 1,
       legend: 5,
@@ -293,10 +293,10 @@
     smallStatusFont: Object.freeze({ size: 15, weight: "semibold" }),
     smallDetailFont: Object.freeze({ size: 9, weight: "medium" }),
     mediumStatusFont: Object.freeze({ size: 5, weight: "medium" }),
-    largeCalendarFont: Object.freeze({ size: 11, weight: "semibold" }),
-    largeHeaderPulseFont: Object.freeze({ size: 10, weight: "semibold" }),
-    largeHeaderMonthFont: Object.freeze({ size: 12, weight: "medium" }),
-    largeSummaryValueFont: Object.freeze({ size: 14, weight: "semibold" }),
+    largeCalendarFont: Object.freeze({ size: 15, weight: "semibold" }),
+    largeHeaderPulseFont: Object.freeze({ size: 9, weight: "semibold" }),
+    largeHeaderMonthFont: Object.freeze({ size: 11, weight: "medium" }),
+    largeSummaryValueFont: Object.freeze({ size: 10, weight: "semibold" }),
     largeSummaryLabelFont: Object.freeze({ size: 8, weight: "medium" }),
     largeFooterFont: Object.freeze({ size: 7, weight: "medium" }),
     unavailableBodyFont: Object.freeze({ size: 13, weight: "medium" }),
@@ -309,10 +309,12 @@
       weekdayHeight: 10,
       mediumCellWidth: 38,
       mediumCellHeight: 14,
-      largeCellWidth: 38,
-      largeCellHeight: 27,
-      largeMarkerHeight: 6,
-      largeMarkerSize: 4,
+      largeCellWidth: 41,
+      largeCellHeight: 36,
+      largeDateWidth: 24,
+      largeDateHeight: 20,
+      largeMarkerHeight: 7,
+      largeMarkerSize: 3,
       todayBorderWidth: 1,
     }),
   });
@@ -585,6 +587,7 @@
   }
 
   function largeStateTone(cell) {
+    if (cell.isAdjacentMonth) return "mutedText";
     if (cell.hasPersonalOverride) return "adjustedRestYellow";
     if (cell.isHoliday) return "holidayRed";
     if (cell.isMakeupWorkday) return "workCyan";
@@ -592,14 +595,55 @@
   }
 
   function largeMarker(cell) {
+    if (cell.isAdjacentMonth) return null;
     if (cell.hasPersonalOverride) return { type: "dot", tone: "adjustedRestYellow", label: "" };
-    if (cell.isHoliday) return { type: "label", tone: "holidayRed", label: cell.holidayName || "节日" };
+    if (cell.isHoliday && cell.largeHolidayLabel) {
+      return { type: "label", tone: "holidayRed", label: cell.largeHolidayLabel };
+    }
     if (cell.isMakeupWorkday) return { type: "dot", tone: "workCyan", label: "" };
     return null;
   }
 
+  function utcDateKey(date) {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function largeCalendarWeeks(vm) {
+    const [year, month] = vm.month.split("-").map(Number);
+    const leading = core.mondayFirstOffset(vm.month);
+    const currentCells = new Map(calendarCells(vm).map((cell) => [cell.date, cell]));
+    let previousHolidayName = null;
+    const cells = Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(Date.UTC(year, month - 1, 1 - leading + index));
+      const dateKey = utcDateKey(date);
+      const current = currentCells.get(dateKey);
+      if (!current) {
+        previousHolidayName = null;
+        return {
+          date: dateKey,
+          number: date.getUTCDate(),
+          isAdjacentMonth: true,
+          isToday: false,
+        };
+      }
+      const holidayName = current.isHoliday ? current.holidayName || "节日" : null;
+      const largeHolidayLabel = (
+        holidayName
+        && !current.hasPersonalOverride
+        && holidayName !== previousHolidayName
+      ) ? holidayName : null;
+      previousHolidayName = holidayName;
+      return { ...current, isAdjacentMonth: false, largeHolidayLabel };
+    });
+    return Array.from({ length: 6 }, (_, row) => cells.slice(row * 7, row * 7 + 7));
+  }
+
   function addLargeCalendarGrid(widget, vm) {
-    vm.grid.forEach((week, weekIndex) => {
+    const weeks = largeCalendarWeeks(vm);
+    weeks.forEach((week, weekIndex) => {
       const row = widget.addStack();
       row.layoutHorizontally();
       week.forEach((cell, index) => {
@@ -607,38 +651,50 @@
         box.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeCellHeight);
         box.layoutVertically();
         box.centerAlignContent();
-        if (cell?.isToday) {
-          box.borderWidth = designTokens.layout.todayBorderWidth;
-          box.borderColor = colorToken("pulsePurple");
-          box.cornerRadius = designTokens.radius.today;
+        box.addSpacer();
+        const dateRow = box.addStack();
+        dateRow.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeDateHeight);
+        dateRow.layoutHorizontally();
+        dateRow.centerAlignContent();
+        dateRow.addSpacer();
+        const dateBox = dateRow.addStack();
+        dateBox.size = new Size(designTokens.layout.largeDateWidth, designTokens.layout.largeDateHeight);
+        dateBox.layoutHorizontally();
+        dateBox.centerAlignContent();
+        if (cell.isToday) {
+          dateBox.borderWidth = designTokens.layout.todayBorderWidth;
+          dateBox.borderColor = colorToken("pulsePurple");
+          dateBox.cornerRadius = designTokens.radius.today;
         }
-        if (cell) {
-          addText(
-            box,
-            cell.number,
-            designTokens.largeCalendarFont,
-            cell.isToday ? "primaryText" : largeStateTone(cell),
-            true,
-          );
-          const markerRow = box.addStack();
-          markerRow.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeMarkerHeight);
-          markerRow.layoutHorizontally();
-          markerRow.centerAlignContent();
-          markerRow.addSpacer();
-          const marker = largeMarker(cell);
-          if (marker?.type === "label") {
-            addText(markerRow, marker.label, designTokens.statusFont, marker.tone, true);
-          } else if (marker?.type === "dot") {
-            const dot = markerRow.addStack();
-            dot.size = new Size(designTokens.layout.largeMarkerSize, designTokens.layout.largeMarkerSize);
-            dot.backgroundColor = colorToken(marker.tone);
-            dot.cornerRadius = designTokens.radius.marker;
-          }
-          markerRow.addSpacer();
+        dateBox.addSpacer();
+        addText(
+          dateBox,
+          cell.number,
+          designTokens.largeCalendarFont,
+          cell.isToday ? "primaryText" : largeStateTone(cell),
+          true,
+        );
+        dateBox.addSpacer();
+        dateRow.addSpacer();
+        const markerRow = box.addStack();
+        markerRow.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeMarkerHeight);
+        markerRow.layoutHorizontally();
+        markerRow.centerAlignContent();
+        markerRow.addSpacer();
+        const marker = largeMarker(cell);
+        if (marker?.type === "label") {
+          addText(markerRow, marker.label, designTokens.statusFont, marker.tone, true);
+        } else if (marker?.type === "dot") {
+          const dot = markerRow.addStack();
+          dot.size = new Size(designTokens.layout.largeMarkerSize, designTokens.layout.largeMarkerSize);
+          dot.backgroundColor = colorToken(marker.tone);
+          dot.cornerRadius = designTokens.radius.marker;
         }
+        markerRow.addSpacer();
+        box.addSpacer();
         if (index < 6) row.addSpacer(designTokens.spacing.column);
       });
-      if (weekIndex < vm.grid.length - 1) widget.addSpacer(designTokens.spacing.largeCalendarRow);
+      if (weekIndex < weeks.length - 1) widget.addSpacer(designTokens.spacing.largeCalendarRow);
     });
   }
 
@@ -748,7 +804,7 @@
     widget.addSpacer(designTokens.spacing.largeHeaderToStats);
     addLargeSummary(widget, vm);
     widget.addSpacer(designTokens.spacing.largeStatsToWeekday);
-    addWeekdayHeader(widget, vm, designTokens.layout.weekdayWidth);
+    addWeekdayHeader(widget, vm, designTokens.layout.largeCellWidth);
     widget.addSpacer(designTokens.spacing.largeWeekdayToGrid);
     addLargeCalendarGrid(widget, vm);
     widget.addSpacer();
