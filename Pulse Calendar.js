@@ -311,7 +311,7 @@
       mediumCellHeight: 14,
       largeCellWidth: 41,
       largeCellHeight: 36,
-      largeDateWidth: 24,
+      largeDateWidth: 32,
       largeDateHeight: 20,
       largeMarkerHeight: 7,
       largeMarkerSize: 3,
@@ -667,13 +667,14 @@
           dateBox.cornerRadius = designTokens.radius.today;
         }
         dateBox.addSpacer();
-        addText(
+        const dateText = addText(
           dateBox,
           cell.number,
           designTokens.largeCalendarFont,
           cell.isToday ? "primaryText" : largeStateTone(cell),
           true,
         );
+        dateText.minimumScaleFactor = 1;
         dateBox.addSpacer();
         dateRow.addSpacer();
         const markerRow = box.addStack();

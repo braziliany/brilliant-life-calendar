@@ -182,6 +182,30 @@ test("Large v2 always renders a complete 6 by 7 calendar with muted adjacent dat
   assert.deepEqual(vm.summary, summaryBeforeRender);
 });
 
+test("Large dates reserve full-width containers for one and two digit values", () => {
+  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
+  const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
+  const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
+  const tokens = globalThis.__PulseCalendarRuntime.designTokens;
+  const cells = largeDayCells(widget, tokens);
+  for (const value of ["1", "9", "10", "11", "20", "28", "30", "31"]) {
+    const matchingCells = cells.filter((cell) => textContent(cell).includes(value));
+    assert.ok(matchingCells.length > 0, `missing rendered date: ${value}`);
+    for (const cell of matchingCells) {
+      const dateText = textNode(cell, value);
+      const dateBox = allNodes(cell).find((node) => (
+        node.size?.width === tokens.layout.largeDateWidth
+        && node.size?.height === tokens.layout.largeDateHeight
+        && textContent(node).includes(value)
+      ));
+      assert.ok(dateBox, `missing date container: ${value}`);
+      assert.ok(dateBox.size.width >= dateText.font.size * 2, `date container too narrow: ${value}`);
+      assert.equal(dateText.font.size, 15);
+      assert.equal(dateText.minimumScaleFactor, 1);
+    }
+  }
+});
+
 test("Large v2 keeps status color and tiny marker semantics without repeated rest labels", () => {
   const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
   const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, {
