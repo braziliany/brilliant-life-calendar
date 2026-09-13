@@ -67,10 +67,10 @@
       weekdayHeight: 10,
       mediumCellWidth: 38,
       mediumCellHeight: 14,
-      largeCellWidth: 41,
+      largeCellWidth: 36,
       largeCellHeight: 36,
-      largeDateWidth: 32,
       largeDateHeight: 20,
+      largeDateHorizontalPadding: 4,
       largeMarkerHeight: 7,
       largeMarkerSize: 3,
       todayBorderWidth: 1,
@@ -249,7 +249,7 @@
     mark.minimumScaleFactor = 1;
   }
 
-  function addWeekdayHeader(widget, vm, width) {
+  function addWeekdayHeader(widget, vm, width, flexibleGaps = false) {
     const row = widget.addStack();
     row.layoutHorizontally();
     vm.weekdayLabels.forEach((label, index) => {
@@ -259,7 +259,10 @@
       cell.addSpacer();
       addText(cell, label, designTokens.weekdayFont, "mutedText", true);
       cell.addSpacer();
-      if (index < 6) row.addSpacer(designTokens.spacing.column);
+      if (index < 6) {
+        if (flexibleGaps) row.addSpacer();
+        else row.addSpacer(designTokens.spacing.column);
+      }
     });
   }
 
@@ -416,15 +419,19 @@
         dateRow.centerAlignContent();
         dateRow.addSpacer();
         const dateBox = dateRow.addStack();
-        dateBox.size = new Size(designTokens.layout.largeDateWidth, designTokens.layout.largeDateHeight);
         dateBox.layoutHorizontally();
         dateBox.centerAlignContent();
+        dateBox.setPadding(
+          0,
+          designTokens.layout.largeDateHorizontalPadding,
+          0,
+          designTokens.layout.largeDateHorizontalPadding,
+        );
         if (cell.isToday) {
           dateBox.borderWidth = designTokens.layout.todayBorderWidth;
           dateBox.borderColor = colorToken("pulsePurple");
           dateBox.cornerRadius = designTokens.radius.today;
         }
-        dateBox.addSpacer();
         const dateText = addText(
           dateBox,
           cell.number,
@@ -433,7 +440,6 @@
           true,
         );
         dateText.minimumScaleFactor = 1;
-        dateBox.addSpacer();
         dateRow.addSpacer();
         const markerRow = box.addStack();
         markerRow.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeMarkerHeight);
@@ -451,7 +457,7 @@
         }
         markerRow.addSpacer();
         box.addSpacer();
-        if (index < 6) row.addSpacer(designTokens.spacing.column);
+        if (index < 6) row.addSpacer();
       });
       if (weekIndex < weeks.length - 1) widget.addSpacer(designTokens.spacing.largeCalendarRow);
     });
@@ -563,7 +569,7 @@
     widget.addSpacer(designTokens.spacing.largeHeaderToStats);
     addLargeSummary(widget, vm);
     widget.addSpacer(designTokens.spacing.largeStatsToWeekday);
-    addWeekdayHeader(widget, vm, designTokens.layout.largeCellWidth);
+    addWeekdayHeader(widget, vm, designTokens.layout.largeCellWidth, true);
     widget.addSpacer(designTokens.spacing.largeWeekdayToGrid);
     addLargeCalendarGrid(widget, vm);
     widget.addSpacer();

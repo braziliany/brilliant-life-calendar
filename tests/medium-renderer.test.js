@@ -9,14 +9,18 @@ class NodeMock {
     this.text = text;
     this.children = [];
   }
-  addStack() { const node = new NodeMock(); this.children.push(node); return node; }
-  addText(value) { const node = new NodeMock("text", String(value)); this.children.push(node); return node; }
-  addSpacer(value) { this.children.push(new NodeMock("spacer", value == null ? "" : String(value))); }
+  addStack() { const node = new NodeMock(); node.parent = this; this.children.push(node); return node; }
+  addText(value) { const node = new NodeMock("text", String(value)); node.parent = this; this.children.push(node); return node; }
+  addSpacer(value) {
+    const node = new NodeMock("spacer", value == null ? "" : String(value));
+    node.parent = this;
+    this.children.push(node);
+  }
   layoutHorizontally() {}
   layoutVertically() {}
   centerAlignContent() {}
   centerAlignText() {}
-  setPadding() {}
+  setPadding(top, left, bottom, right) { this.padding = [top, left, bottom, right]; }
   async presentSmall() {}
   async presentMedium() {}
   async presentLarge() {}
@@ -50,6 +54,11 @@ function largeDayCells(widget, tokens) {
     node.size?.width === tokens.layout.largeCellWidth
     && node.size?.height === tokens.layout.largeCellHeight
   ));
+}
+
+function largeDateLayout(cell, value) {
+  const text = textNode(cell, value);
+  return { text, decoration: text?.parent, dateRow: text?.parent?.parent };
 }
 
 function luminance(hex) {
@@ -171,6 +180,21 @@ test("Large v2 always renders a complete 6 by 7 calendar with muted adjacent dat
   const tokens = globalThis.__PulseCalendarRuntime.designTokens;
   const cells = largeDayCells(widget, tokens);
   assert.equal(cells.length, 42);
+  const calendarRows = widget.children.filter((node) => (
+    node.children.filter((child) => (
+      child.size?.width === tokens.layout.largeCellWidth
+      && child.size?.height === tokens.layout.largeCellHeight
+    )).length === 7
+  ));
+  assert.equal(calendarRows.length, 6);
+  for (const row of calendarRows) {
+    const columns = row.children.filter((node) => node.type === "stack");
+    const gaps = row.children.filter((node) => node.type === "spacer");
+    assert.equal(columns.length, 7);
+    assert.ok(columns.every((node) => node.size.width === tokens.layout.largeCellWidth));
+    assert.equal(gaps.length, 6);
+    assert.ok(gaps.every((node) => node.text === ""));
+  }
   assert.equal(
     widget.children.filter((node) => (
       node.type === "spacer" && node.text === String(tokens.spacing.largeCalendarRow)
@@ -182,26 +206,24 @@ test("Large v2 always renders a complete 6 by 7 calendar with muted adjacent dat
   assert.deepEqual(vm.summary, summaryBeforeRender);
 });
 
-test("Large dates reserve full-width containers for one and two digit values", () => {
+test("Large date Text uses the full column path without a narrow fixed-width frame", () => {
   const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
   const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
   const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
   const tokens = globalThis.__PulseCalendarRuntime.designTokens;
   const cells = largeDayCells(widget, tokens);
-  for (const value of ["1", "9", "10", "11", "20", "28", "30", "31"]) {
+  for (const value of ["1", "9", "10", "11", "12", "13", "14", "17", "18", "20", "21", "28", "29", "30", "31"]) {
     const matchingCells = cells.filter((cell) => textContent(cell).includes(value));
     assert.ok(matchingCells.length > 0, `missing rendered date: ${value}`);
     for (const cell of matchingCells) {
-      const dateText = textNode(cell, value);
-      const dateBox = allNodes(cell).find((node) => (
-        node.size?.width === tokens.layout.largeDateWidth
-        && node.size?.height === tokens.layout.largeDateHeight
-        && textContent(node).includes(value)
-      ));
-      assert.ok(dateBox, `missing date container: ${value}`);
-      assert.ok(dateBox.size.width >= dateText.font.size * 2, `date container too narrow: ${value}`);
-      assert.equal(dateText.font.size, 15);
-      assert.equal(dateText.minimumScaleFactor, 1);
+      const layout = largeDateLayout(cell, value);
+      assert.ok(layout.text, `missing date Text: ${value}`);
+      assert.equal(layout.decoration.size, undefined, `fixed date frame found: ${value}`);
+      assert.deepEqual(layout.decoration.padding, [0, tokens.layout.largeDateHorizontalPadding, 0, tokens.layout.largeDateHorizontalPadding]);
+      assert.equal(layout.dateRow.size.width, tokens.layout.largeCellWidth);
+      assert.equal(layout.dateRow.size.height, tokens.layout.largeDateHeight);
+      assert.equal(layout.text.font.size, 15);
+      assert.equal(layout.text.minimumScaleFactor, 1);
     }
   }
 });
@@ -224,6 +246,12 @@ test("Large v2 keeps status color and tiny marker semantics without repeated res
     && node.size?.width === tokens.layout.largeMarkerSize
     && node.size?.height === tokens.layout.largeMarkerSize
   )));
+  const workCell = largeDayCells(widget, tokens).find((cell) => textContent(cell).includes("20"));
+  const workDate = largeDateLayout(workCell, "20");
+  const workMarker = allNodes(workCell).find((node) => node.backgroundColor?.hex === tokens.workCyan);
+  assert.equal(workDate.dateRow.parent, workCell);
+  assert.equal(workMarker.parent.parent, workCell);
+  assert.notEqual(workMarker.parent, workDate.dateRow);
 });
 
 test("Large v2 deduplicates a continuous holiday label across all holiday days", () => {
@@ -251,10 +279,10 @@ test("Large v2 today outline hugs the date and coexists with a holiday marker", 
   assert.ok(today);
   assert.equal(today.borderWidth, 1);
   assert.equal(today.backgroundColor, undefined);
-  assert.equal(today.size.width, tokens.layout.largeDateWidth);
-  assert.equal(today.size.height, tokens.layout.largeDateHeight);
-  assert.ok(today.size.width < tokens.layout.largeCellWidth);
-  assert.ok(today.size.height < tokens.layout.largeCellHeight);
+  assert.equal(today.size, undefined);
+  assert.deepEqual(today.padding, [0, tokens.layout.largeDateHorizontalPadding, 0, tokens.layout.largeDateHorizontalPadding]);
+  assert.equal(today.parent.size.width, tokens.layout.largeCellWidth);
+  assert.equal(today.parent.size.height, tokens.layout.largeDateHeight);
   assert.match(textContent(today).join(" "), /25/);
   assert.match(textContent(todayCell).join(" "), /中秋/);
 });
