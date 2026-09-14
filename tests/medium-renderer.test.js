@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import "../src/core.js";
 import { calendarFixture } from "./fixtures.js";
@@ -70,6 +71,12 @@ function largeDayCells(widget, tokens) {
   ));
 }
 
+function largeCell(widget, tokens, row, column) {
+  return largeColumns(widget, tokens)[column].children.filter(
+    (node) => node.size?.height === tokens.layout.largeCellHeight,
+  )[row];
+}
+
 function largeDateLayout(cell, value) {
   const text = textNode(cell, value);
   const decorated = Boolean(text?.parent?.borderColor);
@@ -93,34 +100,44 @@ function contrast(left, right) {
   return (values[0] + 0.05) / (values[1] + 0.05);
 }
 
-test("renderers share the required Pulse design tokens", () => {
-  const tokens = globalThis.__PulseCalendarRuntime.designTokens;
-  for (const key of [
-    "background",
-    "primaryText",
-    "secondaryText",
-    "mutedText",
-    "pulsePurple",
-    "holidayRed",
-    "workCyan",
-    "adjustedRestYellow",
-    "todayBackground",
-    "spacing",
-    "radius",
-    "headerFont",
-    "calendarFont",
-    "footerFont",
-  ]) assert.ok(tokens[key], `missing design token: ${key}`);
+test("renderers use one centralized semantic color palette", async () => {
+  const runtime = globalThis.__PulseCalendarRuntime;
+  const colors = runtime.COLORS;
+  assert.equal(runtime.designTokens.colors, colors);
+  assert.deepEqual(Object.keys(colors), [
+    "background", "textPrimary", "textSecondary", "textTertiary", "outsideMonth",
+    "weekend", "weekendSubdued", "holiday", "holidaySubdued", "workdayOverride",
+    "workdayOverrideSubdued", "personal", "personalSubdued", "today", "todayFill", "brand",
+  ]);
   for (const tone of [
-    "primaryText",
-    "secondaryText",
-    "mutedText",
-    "pulsePurple",
-    "holidayRed",
-    "workCyan",
-    "adjustedRestYellow",
-  ]) assert.ok(contrast(tokens[tone], tokens.background) >= 4.5, `${tone} contrast is too low`);
-  assert.ok(contrast(tokens.primaryText, tokens.todayBackground) >= 4.5);
+    "textPrimary", "textSecondary", "textTertiary", "outsideMonth", "weekend", "weekendSubdued",
+    "holiday", "holidaySubdued", "workdayOverride", "workdayOverrideSubdued",
+    "personal", "personalSubdued", "today", "brand",
+  ]) assert.ok(contrast(colors[tone], colors.background) >= 4.5, `${tone} contrast is too low`);
+  assert.ok(contrast(colors.textPrimary, colors.todayFill) >= 4.5);
+  assert.ok(contrast(colors.todayFill, colors.background) >= 3);
+  assert.ok(contrast(colors.outsideMonth, colors.background) < contrast(colors.textTertiary, colors.background));
+  assert.ok(Object.values(colors).every((value) => !["000000", "FFFFFF"].includes(value)));
+  const source = await readFile(new URL("../src/runtime.js", import.meta.url), "utf8");
+  assert.equal(source.match(/"[0-9A-F]{6}"/g)?.length, Object.keys(colors).length);
+  assert.doesNotMatch(source, /new Color\(["']/);
+});
+
+test("approved Large geometry and typography remain frozen", () => {
+  const tokens = globalThis.__PulseCalendarRuntime.designTokens;
+  assert.deepEqual(tokens.layout, {
+    smallPadding: { top: 12, right: 12, bottom: 11, left: 12 },
+    mediumPadding: { top: 9, right: 14, bottom: 8, left: 14 },
+    largePadding: { top: 10, right: 14, bottom: 9, left: 14 },
+    unavailablePadding: { top: 16, right: 16, bottom: 14, left: 16 },
+    weekdayWidth: 38, weekdayHeight: 10, mediumCellWidth: 38, mediumCellHeight: 14,
+    largeCellHeight: 36, largeDateHeight: 20, largeTodayInset: 4,
+    largeMarkerHeight: 7, largeMarkerSize: 3, todayBorderWidth: 1,
+  });
+  assert.deepEqual(tokens.largeCalendarFont, { size: 15, weight: "semibold" });
+  assert.deepEqual(tokens.largeHeaderPulseFont, { size: 9, weight: "semibold" });
+  assert.deepEqual(tokens.largeHeaderMonthFont, { size: 11, weight: "medium" });
+  assert.deepEqual(tokens.largeFooterFont, { size: 7, weight: "medium" });
 });
 
 test("Medium renderer consumes only the view model and produces a complete safe widget tree", () => {
@@ -137,13 +154,13 @@ test("Medium renderer consumes only the view model and produces a complete safe 
   assert.match(output, /假 休 班 改/);
   assert.doesNotMatch(output, /undefined|null|NaN/);
   assert.equal(widget.refreshAfterDate instanceof Date, true);
-  assert.equal(widget.backgroundColor.hex, globalThis.__PulseCalendarRuntime.designTokens.background);
+  assert.equal(widget.backgroundColor.hex, globalThis.__PulseCalendarRuntime.COLORS.background);
   assert.equal(
     textNode(widget, "PULSE").textColor.hex,
-    globalThis.__PulseCalendarRuntime.designTokens.pulsePurple,
+    globalThis.__PulseCalendarRuntime.COLORS.brand,
   );
   const todayContainer = allNodes(widget).find((node) => (
-    node.backgroundColor?.hex === globalThis.__PulseCalendarRuntime.designTokens.todayBackground
+    node.backgroundColor?.hex === globalThis.__PulseCalendarRuntime.COLORS.todayFill
   ));
   assert.ok(todayContainer);
   assert.match(textContent(todayContainer).join(" "), /13/);
@@ -215,8 +232,8 @@ test("Large v2 always renders a complete 6 by 7 calendar with muted adjacent dat
     assert.equal(widthFiller.children[0].type, "spacer");
     assert.equal(widthFiller.children[0].text, "");
   }
-  assert.equal(textNode(cells[0], "31").textColor.hex, tokens.mutedText);
-  assert.equal(textNode(columns[6].children.at(-1), "11").textColor.hex, tokens.mutedText);
+  assert.equal(textNode(cells[0], "31").textColor.hex, tokens.colors.outsideMonth);
+  assert.equal(textNode(columns[6].children.at(-1), "11").textColor.hex, tokens.colors.outsideMonth);
   assert.deepEqual(vm.summary, summaryBeforeRender);
 });
 
@@ -250,34 +267,70 @@ test("Large date Text uses identical auto-width column paths for one and two dig
   const columns = largeColumns(widget, tokens);
   assert.ok(textNode(columns[0], "14"), "Monday column must support a two-digit date");
   assert.ok(textNode(columns[6], "20"), "Sunday column must support a two-digit date");
-  assert.equal(textNode(columns[0], "31").textColor.hex, tokens.mutedText);
-  assert.equal(textNode(columns[6], "11").textColor.hex, tokens.mutedText);
+  assert.equal(textNode(columns[0], "31").textColor.hex, tokens.colors.outsideMonth);
+  assert.equal(textNode(columns[6], "11").textColor.hex, tokens.colors.outsideMonth);
 });
 
-test("Large v2 keeps status color and tiny marker semantics without repeated rest labels", () => {
-  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
+test("Large calendar maps weekend, holiday, workday override and personal states to semantic colors", () => {
+  const raw = calendarFixture();
+  Object.assign(raw.days.find((day) => day.date === "2026-09-22"), {
+    isWorkday: false,
+    hasPersonalOverride: true,
+    personalOverride: "restday",
+  });
+  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(raw, "2026-09");
   const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, {
     source: "network",
     now: new Date("2026-09-13T01:04:00.000Z"),
   });
   const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
   const tokens = globalThis.__PulseCalendarRuntime.designTokens;
-  assert.equal(textNode(widget, "25").textColor.hex, tokens.holidayRed);
-  assert.equal(textNode(widget, "20").textColor.hex, tokens.workCyan);
-  assert.equal(textNode(widget, "26").textColor.hex, tokens.adjustedRestYellow);
+  const colors = tokens.colors;
+  assert.equal(textNode(largeCell(widget, tokens, 0, 5), "5").textColor.hex, colors.weekend);
+  assert.equal(textNode(largeCell(widget, tokens, 0, 6), "6").textColor.hex, colors.weekend);
+  assert.equal(textNode(largeCell(widget, tokens, 3, 4), "25").textColor.hex, colors.holiday);
+  assert.equal(textNode(largeCell(widget, tokens, 2, 6), "20").textColor.hex, colors.workdayOverride);
+  assert.equal(textNode(largeCell(widget, tokens, 3, 1), "22").textColor.hex, colors.personal);
+  assert.equal(textNode(largeCell(widget, tokens, 3, 5), "26").textColor.hex, colors.holiday);
   assert.equal(allNodes(widget).filter((node) => node.type === "text" && node.text === "休").length, 1);
   assert.equal(allNodes(widget).filter((node) => node.type === "text" && node.text === "中秋").length, 1);
   assert.ok(allNodes(widget).some((node) => (
-    node.backgroundColor?.hex === tokens.adjustedRestYellow
+    node.backgroundColor?.hex === colors.personal
     && node.size?.width === tokens.layout.largeMarkerSize
     && node.size?.height === tokens.layout.largeMarkerSize
   )));
-  const workCell = largeDayCells(widget, tokens).find((cell) => textContent(cell).includes("20"));
+  const workCell = largeCell(widget, tokens, 2, 6);
   const workDate = largeDateLayout(workCell, "20");
-  const workMarker = allNodes(workCell).find((node) => node.backgroundColor?.hex === tokens.workCyan);
+  const workMarker = allNodes(workCell).find((node) => node.backgroundColor?.hex === colors.workdayOverride);
   assert.equal(workDate.dateRow.parent, workCell);
   assert.equal(workMarker.parent.parent, workCell);
   assert.notEqual(workMarker.parent, workDate.dateRow);
+});
+
+test("Large header and footer consume the same semantic palette as calendar states", () => {
+  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
+  const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
+  const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
+  const colors = globalThis.__PulseCalendarRuntime.COLORS;
+  const summary = Object.fromEntries(["工作", "休息", "节日", "调班", "个人"].map((label) => {
+    const labelNode = textNode(widget, label);
+    return [label, { value: labelNode.parent.children[0], label: labelNode }];
+  }));
+  assert.equal(summary["工作"].value.textColor.hex, colors.textPrimary);
+  assert.equal(summary["工作"].label.textColor.hex, colors.textSecondary);
+  assert.equal(summary["休息"].value.textColor.hex, colors.textSecondary);
+  assert.equal(summary["休息"].label.textColor.hex, colors.textTertiary);
+  assert.equal(summary["节日"].value.textColor.hex, colors.holiday);
+  assert.equal(summary["节日"].label.textColor.hex, colors.holidaySubdued);
+  assert.equal(summary["调班"].value.textColor.hex, colors.workdayOverride);
+  assert.equal(summary["调班"].label.textColor.hex, colors.workdayOverrideSubdued);
+  assert.equal(summary["个人"].value.textColor.hex, colors.personal);
+  assert.equal(summary["个人"].label.textColor.hex, colors.personalSubdued);
+  assert.equal(textNode(widget, "PULSE").textColor.hex, colors.brand);
+  assert.equal(textNode(widget, "假").textColor.hex, colors.holiday);
+  assert.equal(textNode(widget, "休").textColor.hex, colors.weekend);
+  assert.equal(textNode(widget, "班").textColor.hex, colors.workdayOverride);
+  assert.equal(textNode(widget, "改").textColor.hex, colors.personal);
 });
 
 test("Large v2 deduplicates a continuous holiday label across all holiday days", () => {
@@ -294,18 +347,20 @@ test("Large v2 deduplicates a continuous holiday label across all holiday days",
   assert.equal(allNodes(widget).filter((node) => node.type === "text" && node.text === "中秋").length, 1);
 });
 
-test("Large v2 today outline is intrinsic for one and two digit dates and never changes column width", () => {
-  for (const todayDate of ["2026-09-07", "2026-09-25"]) {
+test("Large today outline preserves holiday and workday override text semantics", () => {
+  for (const [todayDate, row, column, expectedTone] of [
+    ["2026-09-07", 1, 0, "textPrimary"],
+    ["2026-09-25", 3, 4, "holiday"],
+    ["2026-09-20", 2, 6, "workdayOverride"],
+  ]) {
     const raw = calendarFixture({ today: todayDate });
     const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(raw, "2026-09");
     const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
     const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
     const tokens = globalThis.__PulseCalendarRuntime.designTokens;
     const value = String(Number(todayDate.slice(-2)));
-    const todayCell = largeDayCells(widget, tokens).find((cell) => (
-      textNode(cell, value)?.parent?.borderColor?.hex === tokens.pulsePurple
-    ));
-    const today = allNodes(todayCell).find((node) => node.borderColor?.hex === tokens.pulsePurple);
+    const todayCell = largeCell(widget, tokens, row, column);
+    const today = allNodes(todayCell).find((node) => node.borderColor?.hex === tokens.colors.today);
     assert.ok(today);
     assert.equal(today.borderWidth, 1);
     assert.equal(today.backgroundColor, undefined);
@@ -318,6 +373,7 @@ test("Large v2 today outline is intrinsic for one and two digit dates and never 
       ["text", value],
       ["spacer", String(tokens.layout.largeTodayInset)],
     ]);
+    assert.equal(textNode(today, value).textColor.hex, tokens.colors[expectedTone]);
     assert.match(textContent(today).join(" "), new RegExp(`\\b${value}\\b`));
     assert.ok(allNodes(todayCell).some((node) => node.size?.height === tokens.layout.largeMarkerHeight));
     if (value === "25") assert.match(textContent(todayCell).join(" "), /中秋/);

@@ -1,7 +1,7 @@
 (function registerPulseCalendarCore(global) {
   "use strict";
 
-  const RELEASE_METADATA_JSON = `{"version":"0.1.1","notes":["Large 月历改用原生七列等分布局","安装器新增版本识别、更新与重装流程"]}`;
+  const RELEASE_METADATA_JSON = `{"version":"0.2.0","notes":["统一日历、统计与图例的语义颜色体系","周末、跨月与 Today 叠加状态获得独立视觉层级"]}`;
   const RELEASE_METADATA = Object.freeze((() => {
     const metadata = JSON.parse(RELEASE_METADATA_JSON);
     return { ...metadata, notes: Object.freeze([...metadata.notes]) };

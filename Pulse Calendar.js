@@ -1,12 +1,12 @@
 // Variables used by Scriptable.
 // These must be at the very top of the file. Do not edit.
 // icon-color: deep-blue; icon-glyph: calendar-alt;
-// Pulse Calendar v0.1.1 — generated file. Edit src/* instead.
+// Pulse Calendar v0.2.0 — generated file. Edit src/* instead.
 
 (function registerPulseCalendarCore(global) {
   "use strict";
 
-  const RELEASE_METADATA_JSON = `{"version":"0.1.1","notes":["Large 月历改用原生七列等分布局","安装器新增版本识别、更新与重装流程"]}`;
+  const RELEASE_METADATA_JSON = `{"version":"0.2.0","notes":["统一日历、统计与图例的语义颜色体系","周末、跨月与 Today 叠加状态获得独立视觉层级"]}`;
   const RELEASE_METADATA = Object.freeze((() => {
     const metadata = JSON.parse(RELEASE_METADATA_JSON);
     return { ...metadata, notes: Object.freeze([...metadata.notes]) };
@@ -261,17 +261,31 @@
   const REFRESH_MINUTES = 30;
   const CALENDAR_URL = "calshow://";
 
-  /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
+  /* Hallmark · component: semantic calendar palette · genre: atmospheric
+   * theme: studied-DNA (image) · layout: frozen · contrast: pass
+   * pre-emit critique: P5 H5 E5 S5 R5 V4
+   */
+  const COLORS = Object.freeze({
+    background: "111321",
+    textPrimary: "E8E9EF",
+    textSecondary: "ADB0BD",
+    textTertiary: "8A8E9E",
+    outsideMonth: "797D8F",
+    weekend: "EC7180",
+    weekendSubdued: "C56C78",
+    holiday: "FF6F8A",
+    holidaySubdued: "C86C7B",
+    workdayOverride: "65D0E4",
+    workdayOverrideSubdued: "67AEBB",
+    personal: "F2C66F",
+    personalSubdued: "BFA660",
+    today: "9B8CFF",
+    todayFill: "6558B3",
+    brand: "8778F2",
+  });
+
   const designTokens = Object.freeze({
-    background: "0C0D12",
-    primaryText: "F5F5F7",
-    secondaryText: "A6A8B2",
-    mutedText: "787B87",
-    pulsePurple: "8B7CFF",
-    holidayRed: "FF6B76",
-    workCyan: "58C7D8",
-    adjustedRestYellow: "F4C765",
-    todayBackground: "6757CC",
+    colors: COLORS,
     spacing: Object.freeze({
       widgetTop: 11,
       widgetHorizontal: 14,
@@ -446,7 +460,7 @@
   }
 
   function colorToken(name, alpha = 1) {
-    return new Color(designTokens[name], alpha);
+    return new Color(COLORS[name], alpha);
   }
 
   function tokenFont(token, size = token.size) {
@@ -480,22 +494,26 @@
     return cell.isWorkday ? "" : "休";
   }
 
+  function isWeekend(cell) {
+    const weekday = new Date(`${cell.date}T00:00:00Z`).getUTCDay();
+    return weekday === 0 || weekday === 6;
+  }
+
   function dayTone(cell) {
-    if (cell.isToday) return "primaryText";
-    if (cell.personalOverride === "restday") return "adjustedRestYellow";
-    if (cell.personalOverride === "workday") return "workCyan";
-    if (cell.isHoliday) return "holidayRed";
-    if (cell.isMakeupWorkday) return "workCyan";
-    return cell.isWorkday ? "primaryText" : "mutedText";
+    if (cell.isHoliday) return "holiday";
+    if (cell.isMakeupWorkday) return "workdayOverride";
+    if (cell.hasPersonalOverride) return "personal";
+    if (isWeekend(cell)) return "weekend";
+    return cell.isWorkday ? "textPrimary" : "textSecondary";
   }
 
   function addHeader(widget, vm) {
     const row = widget.addStack();
     row.layoutHorizontally();
     row.centerAlignContent();
-    addText(row, vm.title, designTokens.headerFont, "primaryText");
+    addText(row, vm.title, designTokens.headerFont, "textPrimary");
     row.addSpacer();
-    const mark = addText(row, "PULSE", designTokens.pulseFont, "pulsePurple");
+    const mark = addText(row, "PULSE", designTokens.pulseFont, "brand");
     mark.minimumScaleFactor = 1;
   }
 
@@ -507,7 +525,7 @@
       cell.size = new Size(width, designTokens.layout.weekdayHeight);
       cell.layoutHorizontally();
       cell.addSpacer();
-      addText(cell, label, designTokens.weekdayFont, "mutedText", true);
+      addText(cell, label, designTokens.weekdayFont, index >= 5 ? "weekendSubdued" : "textTertiary", true);
       cell.addSpacer();
       if (index < 6) row.addSpacer(designTokens.spacing.column);
     });
@@ -525,13 +543,13 @@
   function addLargeWeekdayHeader(widget, vm) {
     const row = widget.addStack();
     row.layoutHorizontally();
-    vm.weekdayLabels.forEach((label) => {
+    vm.weekdayLabels.forEach((label, index) => {
       const column = addFlexibleLargeColumn(row);
       const line = column.addStack();
       line.size = new Size(0, designTokens.layout.weekdayHeight);
       line.layoutHorizontally();
       line.addSpacer();
-      addText(line, label, designTokens.weekdayFont, "mutedText", true);
+      addText(line, label, designTokens.weekdayFont, index >= 5 ? "weekendSubdued" : "textTertiary", true);
       line.addSpacer();
     });
   }
@@ -546,14 +564,15 @@
         box.layoutVertically();
         box.centerAlignContent();
         if (cell?.isToday) {
-          box.backgroundColor = colorToken("todayBackground");
+          box.backgroundColor = colorToken("todayFill");
           box.cornerRadius = designTokens.radius.today;
         }
         if (cell) {
-          addText(box, cell.number, profile.calendarFont, dayTone(cell), true);
+          const tone = cell.isToday ? "textPrimary" : dayTone(cell);
+          addText(box, cell.number, profile.calendarFont, tone, true);
           const label = statusLabel(cell);
           if (label) {
-            addText(box, label, profile.statusFont, cell.isToday ? "primaryText" : dayTone(cell), true);
+            addText(box, label, profile.statusFont, tone, true);
           }
         }
         if (index < 6) row.addSpacer(designTokens.spacing.column);
@@ -567,10 +586,10 @@
     row.layoutHorizontally();
     row.centerAlignContent();
     const legend = [
-      ["假", "holidayRed"],
-      ["休", "mutedText"],
-      ["班", "workCyan"],
-      ["改", "adjustedRestYellow"],
+      ["假", "holiday"],
+      ["休", "weekend"],
+      ["班", "workdayOverride"],
+      ["改", "personal"],
     ];
     legend.forEach(([label, tone], index) => {
       addText(row, label, designTokens.footerFont, tone);
@@ -581,7 +600,7 @@
       row,
       vm.freshness.text,
       designTokens.footerFont,
-      vm.freshness.stale ? "adjustedRestYellow" : "mutedText",
+      vm.freshness.stale ? "personalSubdued" : "textTertiary",
     );
   }
 
@@ -589,10 +608,10 @@
     const row = widget.addStack();
     row.layoutHorizontally();
     row.centerAlignContent();
-    const mark = addText(row, "PULSE", designTokens.largeHeaderPulseFont, "pulsePurple");
+    const mark = addText(row, "PULSE", designTokens.largeHeaderPulseFont, "brand");
     mark.minimumScaleFactor = 1;
     row.addSpacer();
-    addText(row, vm.title, designTokens.largeHeaderMonthFont, "secondaryText");
+    addText(row, vm.title, designTokens.largeHeaderMonthFont, "textSecondary");
   }
 
   function addLargeSummary(widget, vm) {
@@ -600,38 +619,36 @@
     row.layoutHorizontally();
     row.centerAlignContent();
     const items = [
-      [vm.summary.workdays, "工作", "primaryText"],
-      [vm.summary.restdays, "休息", "mutedText"],
-      [vm.summary.holidays, "节日", "holidayRed"],
-      [vm.summary.makeupWorkdays, "调班", "workCyan"],
-      [vm.summary.personalOverrides, "个人", "adjustedRestYellow"],
+      [vm.summary.workdays, "工作", "textPrimary", "textSecondary"],
+      [vm.summary.restdays, "休息", "textSecondary", "textTertiary"],
+      [vm.summary.holidays, "节日", "holiday", "holidaySubdued"],
+      [vm.summary.makeupWorkdays, "调班", "workdayOverride", "workdayOverrideSubdued"],
+      [vm.summary.personalOverrides, "个人", "personal", "personalSubdued"],
     ];
-    items.forEach(([value, label, tone], index) => {
+    items.forEach(([value, label, valueTone, labelTone], index) => {
       const item = row.addStack();
       item.layoutHorizontally();
       item.centerAlignContent();
-      addText(item, value, designTokens.largeSummaryValueFont, tone);
+      addText(item, value, designTokens.largeSummaryValueFont, valueTone);
       item.addSpacer(designTokens.spacing.detail);
-      addText(item, label, designTokens.largeSummaryLabelFont, "mutedText");
+      addText(item, label, designTokens.largeSummaryLabelFont, labelTone);
       if (index < items.length - 1) row.addSpacer();
     });
   }
 
   function largeStateTone(cell) {
-    if (cell.isAdjacentMonth) return "mutedText";
-    if (cell.hasPersonalOverride) return "adjustedRestYellow";
-    if (cell.isHoliday) return "holidayRed";
-    if (cell.isMakeupWorkday) return "workCyan";
-    return cell.isWorkday ? "primaryText" : "mutedText";
+    if (cell.isAdjacentMonth) return "outsideMonth";
+    return dayTone(cell);
   }
 
   function largeMarker(cell) {
     if (cell.isAdjacentMonth) return null;
-    if (cell.hasPersonalOverride) return { type: "dot", tone: "adjustedRestYellow", label: "" };
     if (cell.isHoliday && cell.largeHolidayLabel) {
-      return { type: "label", tone: "holidayRed", label: cell.largeHolidayLabel };
+      return { type: "label", tone: "holiday", label: cell.largeHolidayLabel };
     }
-    if (cell.isMakeupWorkday) return { type: "dot", tone: "workCyan", label: "" };
+    if (cell.isHoliday) return null;
+    if (cell.isMakeupWorkday) return { type: "dot", tone: "workdayOverride", label: "" };
+    if (cell.hasPersonalOverride) return { type: "dot", tone: "personal", label: "" };
     return null;
   }
 
@@ -681,14 +698,14 @@
       textParent.centerAlignContent();
       textParent.addSpacer(designTokens.layout.largeTodayInset);
       textParent.borderWidth = designTokens.layout.todayBorderWidth;
-      textParent.borderColor = colorToken("pulsePurple");
+      textParent.borderColor = colorToken("today");
       textParent.cornerRadius = designTokens.radius.today;
     }
     const dateText = addText(
       textParent,
       cell.number,
       designTokens.largeCalendarFont,
-      cell.isToday ? "primaryText" : largeStateTone(cell),
+      largeStateTone(cell),
       true,
     );
     dateText.lineLimit = 0;
@@ -745,10 +762,10 @@
     row.layoutHorizontally();
     row.centerAlignContent();
     const legend = [
-      ["假", "holidayRed"],
-      ["休", "mutedText"],
-      ["班", "workCyan"],
-      ["改", "adjustedRestYellow"],
+      ["假", "holiday"],
+      ["休", "weekend"],
+      ["班", "workdayOverride"],
+      ["改", "personal"],
     ];
     legend.forEach(([label, tone], index) => {
       addText(row, label, designTokens.largeFooterFont, tone);
@@ -759,7 +776,7 @@
       row,
       vm.freshness.text,
       designTokens.largeFooterFont,
-      vm.freshness.stale ? "adjustedRestYellow" : "mutedText",
+      vm.freshness.stale ? "personalSubdued" : "textTertiary",
     );
   }
 
@@ -772,7 +789,7 @@
   }
 
   function smallDetail(cell) {
-    if (!cell) return { title: "今日不在本月", subtitle: "查看月历", tone: "secondaryText" };
+    if (!cell) return { title: "今日不在本月", subtitle: "查看月历", tone: "textSecondary" };
     const label = statusLabel(cell, true);
     return {
       title: label || "工作日",
@@ -820,21 +837,21 @@
     const hero = widget.addStack();
     hero.layoutHorizontally();
     hero.centerAlignContent();
-    addText(hero, today ? today.number : "—", designTokens.smallTodayFont, today ? dayTone(today) : "mutedText");
+    addText(hero, today ? today.number : "—", designTokens.smallTodayFont, today ? dayTone(today) : "textTertiary");
     hero.addSpacer(designTokens.spacing.hero);
     const context = hero.addStack();
     context.layoutVertically();
     addText(context, detail.title, designTokens.smallStatusFont, detail.tone);
     context.addSpacer(designTokens.spacing.detail);
-    addText(context, detail.subtitle, designTokens.smallDetailFont, "secondaryText");
+    addText(context, detail.subtitle, designTokens.smallDetailFont, "textSecondary");
     widget.addSpacer();
-    addText(widget, smallNextLine(vm, today), designTokens.smallDetailFont, "secondaryText");
+    addText(widget, smallNextLine(vm, today), designTokens.smallDetailFont, "textSecondary");
     widget.addSpacer(designTokens.spacing.smallFooter);
     addText(
       widget,
       vm.freshness.text,
       designTokens.footerFont,
-      vm.freshness.stale ? "adjustedRestYellow" : "mutedText",
+      vm.freshness.stale ? "personalSubdued" : "textTertiary",
     );
     return widget;
   }
@@ -868,16 +885,16 @@
     widget.url = CALENDAR_URL;
     const title = widget.addText("Pulse Calendar");
     title.font = tokenFont(designTokens.headerFont);
-    title.textColor = colorToken("primaryText");
+    title.textColor = colorToken("textPrimary");
     widget.addSpacer(designTokens.spacing.unavailableBody);
     const text = widget.addText(message);
     text.font = tokenFont(designTokens.unavailableBodyFont);
-    text.textColor = colorToken("secondaryText");
+    text.textColor = colorToken("textSecondary");
     text.lineLimit = 3;
     widget.addSpacer();
     const hint = widget.addText("在 Scriptable App 中运行脚本以配置认证");
     hint.font = tokenFont(designTokens.smallDetailFont);
-    hint.textColor = colorToken("mutedText");
+    hint.textColor = colorToken("textTertiary");
     hint.lineLimit = 2;
     return widget;
   }
@@ -918,6 +935,7 @@
     CLIENT_ID_KEY,
     CLIENT_SECRET_KEY,
     CACHE_SCHEMA_VERSION,
+    COLORS,
     designTokens,
     safeErrorCode,
     readCredentials,
