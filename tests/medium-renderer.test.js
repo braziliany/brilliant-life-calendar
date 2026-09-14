@@ -16,8 +16,8 @@ class NodeMock {
     node.parent = this;
     this.children.push(node);
   }
-  layoutHorizontally() {}
-  layoutVertically() {}
+  layoutHorizontally() { this.layout = "horizontal"; }
+  layoutVertically() { this.layout = "vertical"; }
   centerAlignContent() {}
   centerAlignText() {}
   setPadding(top, left, bottom, right) { this.padding = [top, left, bottom, right]; }
@@ -49,16 +49,35 @@ function textNode(node, value) {
   return allNodes(node).find((item) => item.type === "text" && item.text === value);
 }
 
+function largeGrid(widget, tokens) {
+  return widget.children.find((node) => (
+    node.layout === "horizontal"
+    && node.children.length === 7
+    && node.children.every((column) => (
+      column.layout === "vertical"
+      && column.children.filter((child) => child.size?.height === tokens.layout.largeCellHeight).length === 6
+    ))
+  ));
+}
+
+function largeColumns(widget, tokens) {
+  return largeGrid(widget, tokens)?.children || [];
+}
+
 function largeDayCells(widget, tokens) {
-  return allNodes(widget).filter((node) => (
-    node.size?.width === tokens.layout.largeCellWidth
-    && node.size?.height === tokens.layout.largeCellHeight
+  return largeColumns(widget, tokens).flatMap((column) => (
+    column.children.filter((node) => node.size?.height === tokens.layout.largeCellHeight)
   ));
 }
 
 function largeDateLayout(cell, value) {
   const text = textNode(cell, value);
-  return { text, decoration: text?.parent, dateRow: text?.parent?.parent };
+  const decorated = Boolean(text?.parent?.borderColor);
+  return {
+    text,
+    decoration: decorated ? text.parent : null,
+    dateRow: decorated ? text.parent.parent : text?.parent,
+  };
 }
 
 function luminance(hex) {
@@ -180,33 +199,28 @@ test("Large v2 always renders a complete 6 by 7 calendar with muted adjacent dat
   const tokens = globalThis.__PulseCalendarRuntime.designTokens;
   const cells = largeDayCells(widget, tokens);
   assert.equal(cells.length, 42);
-  const calendarRows = widget.children.filter((node) => (
-    node.children.filter((child) => (
-      child.size?.width === tokens.layout.largeCellWidth
-      && child.size?.height === tokens.layout.largeCellHeight
-    )).length === 7
-  ));
-  assert.equal(calendarRows.length, 6);
-  for (const row of calendarRows) {
-    const columns = row.children.filter((node) => node.type === "stack");
-    const gaps = row.children.filter((node) => node.type === "spacer");
-    assert.equal(columns.length, 7);
-    assert.ok(columns.every((node) => node.size.width === tokens.layout.largeCellWidth));
-    assert.equal(gaps.length, 6);
-    assert.ok(gaps.every((node) => node.text === ""));
-  }
-  assert.equal(
-    widget.children.filter((node) => (
+  const columns = largeColumns(widget, tokens);
+  assert.equal(columns.length, 7);
+  for (const column of columns) {
+    const columnCells = column.children.filter((node) => node.size?.height === tokens.layout.largeCellHeight);
+    const gaps = column.children.filter((node) => (
       node.type === "spacer" && node.text === String(tokens.spacing.largeCalendarRow)
-    )).length,
-    5,
-  );
+    ));
+    assert.equal(columnCells.length, 6);
+    assert.ok(columnCells.every((node) => node.size.width === 0));
+    assert.equal(gaps.length, 5);
+    const widthFiller = column.children[0];
+    assert.equal(widthFiller.layout, "horizontal");
+    assert.equal(widthFiller.children.length, 1);
+    assert.equal(widthFiller.children[0].type, "spacer");
+    assert.equal(widthFiller.children[0].text, "");
+  }
   assert.equal(textNode(cells[0], "31").textColor.hex, tokens.mutedText);
-  assert.equal(textNode(cells[41], "11").textColor.hex, tokens.mutedText);
+  assert.equal(textNode(columns[6].children.at(-1), "11").textColor.hex, tokens.mutedText);
   assert.deepEqual(vm.summary, summaryBeforeRender);
 });
 
-test("Large date Text uses the full column path without a narrow fixed-width frame", () => {
+test("Large date Text uses identical auto-width column paths for one and two digit dates", () => {
   const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(calendarFixture(), "2026-09");
   const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
   const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
@@ -218,14 +232,26 @@ test("Large date Text uses the full column path without a narrow fixed-width fra
     for (const cell of matchingCells) {
       const layout = largeDateLayout(cell, value);
       assert.ok(layout.text, `missing date Text: ${value}`);
-      assert.equal(layout.decoration.size, undefined, `fixed date frame found: ${value}`);
-      assert.deepEqual(layout.decoration.padding, [0, tokens.layout.largeDateHorizontalPadding, 0, tokens.layout.largeDateHorizontalPadding]);
-      assert.equal(layout.dateRow.size.width, tokens.layout.largeCellWidth);
+      assert.equal(layout.text.size, undefined, `fixed date Text frame found: ${value}`);
+      assert.equal(layout.dateRow.size.width, 0);
       assert.equal(layout.dateRow.size.height, tokens.layout.largeDateHeight);
+      assert.equal(layout.dateRow.layout, "horizontal");
       assert.equal(layout.text.font.size, 15);
       assert.equal(layout.text.minimumScaleFactor, 1);
+      assert.equal(layout.text.lineLimit, 0);
+      const visual = layout.decoration || layout.text;
+      const visualIndex = layout.dateRow.children.indexOf(visual);
+      assert.equal(layout.dateRow.children[visualIndex - 1].type, "spacer");
+      assert.equal(layout.dateRow.children[visualIndex - 1].text, "");
+      assert.equal(layout.dateRow.children[visualIndex + 1].type, "spacer");
+      assert.equal(layout.dateRow.children[visualIndex + 1].text, "");
     }
   }
+  const columns = largeColumns(widget, tokens);
+  assert.ok(textNode(columns[0], "14"), "Monday column must support a two-digit date");
+  assert.ok(textNode(columns[6], "20"), "Sunday column must support a two-digit date");
+  assert.equal(textNode(columns[0], "31").textColor.hex, tokens.mutedText);
+  assert.equal(textNode(columns[6], "11").textColor.hex, tokens.mutedText);
 });
 
 test("Large v2 keeps status color and tiny marker semantics without repeated rest labels", () => {
@@ -268,23 +294,34 @@ test("Large v2 deduplicates a continuous holiday label across all holiday days",
   assert.equal(allNodes(widget).filter((node) => node.type === "text" && node.text === "中秋").length, 1);
 });
 
-test("Large v2 today outline hugs the date and coexists with a holiday marker", () => {
-  const raw = calendarFixture({ today: "2026-09-25" });
-  const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(raw, "2026-09");
-  const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
-  const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
-  const tokens = globalThis.__PulseCalendarRuntime.designTokens;
-  const todayCell = largeDayCells(widget, tokens).find((cell) => textContent(cell).includes("25"));
-  const today = allNodes(widget).find((node) => node.borderColor?.hex === tokens.pulsePurple);
-  assert.ok(today);
-  assert.equal(today.borderWidth, 1);
-  assert.equal(today.backgroundColor, undefined);
-  assert.equal(today.size, undefined);
-  assert.deepEqual(today.padding, [0, tokens.layout.largeDateHorizontalPadding, 0, tokens.layout.largeDateHorizontalPadding]);
-  assert.equal(today.parent.size.width, tokens.layout.largeCellWidth);
-  assert.equal(today.parent.size.height, tokens.layout.largeDateHeight);
-  assert.match(textContent(today).join(" "), /25/);
-  assert.match(textContent(todayCell).join(" "), /中秋/);
+test("Large v2 today outline is intrinsic for one and two digit dates and never changes column width", () => {
+  for (const todayDate of ["2026-09-07", "2026-09-25"]) {
+    const raw = calendarFixture({ today: todayDate });
+    const calendar = globalThis.__PulseCalendarCore.normalizeCalendarResponse(raw, "2026-09");
+    const vm = globalThis.__PulseCalendarCore.buildCalendarViewModel(calendar, { source: "network" });
+    const widget = globalThis.__PulseCalendarRuntime.renderLarge(vm);
+    const tokens = globalThis.__PulseCalendarRuntime.designTokens;
+    const value = String(Number(todayDate.slice(-2)));
+    const todayCell = largeDayCells(widget, tokens).find((cell) => (
+      textNode(cell, value)?.parent?.borderColor?.hex === tokens.pulsePurple
+    ));
+    const today = allNodes(todayCell).find((node) => node.borderColor?.hex === tokens.pulsePurple);
+    assert.ok(today);
+    assert.equal(today.borderWidth, 1);
+    assert.equal(today.backgroundColor, undefined);
+    assert.equal(today.size, undefined);
+    assert.equal(today.padding, undefined);
+    assert.equal(today.parent.size.width, 0);
+    assert.equal(today.parent.size.height, tokens.layout.largeDateHeight);
+    assert.deepEqual(today.children.map((node) => [node.type, node.text]), [
+      ["spacer", String(tokens.layout.largeTodayInset)],
+      ["text", value],
+      ["spacer", String(tokens.layout.largeTodayInset)],
+    ]);
+    assert.match(textContent(today).join(" "), new RegExp(`\\b${value}\\b`));
+    assert.ok(allNodes(todayCell).some((node) => node.size?.height === tokens.layout.largeMarkerHeight));
+    if (value === "25") assert.match(textContent(todayCell).join(" "), /中秋/);
+  }
 });
 
 test("successful widget roots open the native iOS Calendar", () => {

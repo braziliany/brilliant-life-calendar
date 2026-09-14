@@ -1,12 +1,18 @@
 // Variables used by Scriptable.
 // These must be at the very top of the file. Do not edit.
 // icon-color: deep-blue; icon-glyph: calendar-alt;
-// Pulse Calendar v0.1.0 — generated file. Edit src/* instead.
+// Pulse Calendar v0.1.1 — generated file. Edit src/* instead.
 
 (function registerPulseCalendarCore(global) {
   "use strict";
 
-  const APP_VERSION = "0.1.0";
+  const RELEASE_METADATA_JSON = `{"version":"0.1.1","notes":["Large 月历改用原生七列等分布局","安装器新增版本识别、更新与重装流程"]}`;
+  const RELEASE_METADATA = Object.freeze((() => {
+    const metadata = JSON.parse(RELEASE_METADATA_JSON);
+    return { ...metadata, notes: Object.freeze([...metadata.notes]) };
+  })());
+  const VERSION = RELEASE_METADATA.version;
+  const APP_VERSION = VERSION;
   const SCHEMA_VERSION = "1.0";
   const TIME_ZONE = "Asia/Shanghai";
   const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
@@ -222,6 +228,9 @@
   }
 
   global.__PulseCalendarCore = {
+    RELEASE_METADATA_JSON,
+    RELEASE_METADATA,
+    VERSION,
     APP_VERSION,
     SCHEMA_VERSION,
     TIME_ZONE,
@@ -309,10 +318,9 @@
       weekdayHeight: 10,
       mediumCellWidth: 38,
       mediumCellHeight: 14,
-      largeCellWidth: 36,
       largeCellHeight: 36,
       largeDateHeight: 20,
-      largeDateHorizontalPadding: 4,
+      largeTodayInset: 4,
       largeMarkerHeight: 7,
       largeMarkerSize: 3,
       todayBorderWidth: 1,
@@ -491,7 +499,7 @@
     mark.minimumScaleFactor = 1;
   }
 
-  function addWeekdayHeader(widget, vm, width, flexibleGaps = false) {
+  function addWeekdayHeader(widget, vm, width) {
     const row = widget.addStack();
     row.layoutHorizontally();
     vm.weekdayLabels.forEach((label, index) => {
@@ -501,10 +509,30 @@
       cell.addSpacer();
       addText(cell, label, designTokens.weekdayFont, "mutedText", true);
       cell.addSpacer();
-      if (index < 6) {
-        if (flexibleGaps) row.addSpacer();
-        else row.addSpacer(designTokens.spacing.column);
-      }
+      if (index < 6) row.addSpacer(designTokens.spacing.column);
+    });
+  }
+
+  function addFlexibleLargeColumn(parent) {
+    const column = parent.addStack();
+    column.layoutVertically();
+    const widthFiller = column.addStack();
+    widthFiller.layoutHorizontally();
+    widthFiller.addSpacer();
+    return column;
+  }
+
+  function addLargeWeekdayHeader(widget, vm) {
+    const row = widget.addStack();
+    row.layoutHorizontally();
+    vm.weekdayLabels.forEach((label) => {
+      const column = addFlexibleLargeColumn(row);
+      const line = column.addStack();
+      line.size = new Size(0, designTokens.layout.weekdayHeight);
+      line.layoutHorizontally();
+      line.addSpacer();
+      addText(line, label, designTokens.weekdayFont, "mutedText", true);
+      line.addSpacer();
     });
   }
 
@@ -644,65 +672,72 @@
     return Array.from({ length: 6 }, (_, row) => cells.slice(row * 7, row * 7 + 7));
   }
 
+  function addLargeDate(dateRow, cell) {
+    dateRow.addSpacer();
+    let textParent = dateRow;
+    if (cell.isToday) {
+      textParent = dateRow.addStack();
+      textParent.layoutHorizontally();
+      textParent.centerAlignContent();
+      textParent.addSpacer(designTokens.layout.largeTodayInset);
+      textParent.borderWidth = designTokens.layout.todayBorderWidth;
+      textParent.borderColor = colorToken("pulsePurple");
+      textParent.cornerRadius = designTokens.radius.today;
+    }
+    const dateText = addText(
+      textParent,
+      cell.number,
+      designTokens.largeCalendarFont,
+      cell.isToday ? "primaryText" : largeStateTone(cell),
+      true,
+    );
+    dateText.lineLimit = 0;
+    dateText.minimumScaleFactor = 1;
+    if (cell.isToday) textParent.addSpacer(designTokens.layout.largeTodayInset);
+    dateRow.addSpacer();
+  }
+
+  function addLargeDayCell(column, cell) {
+    const box = column.addStack();
+    box.size = new Size(0, designTokens.layout.largeCellHeight);
+    box.layoutVertically();
+    box.addSpacer();
+    const dateRow = box.addStack();
+    dateRow.size = new Size(0, designTokens.layout.largeDateHeight);
+    dateRow.layoutHorizontally();
+    dateRow.centerAlignContent();
+    addLargeDate(dateRow, cell);
+    const markerRow = box.addStack();
+    markerRow.size = new Size(0, designTokens.layout.largeMarkerHeight);
+    markerRow.layoutHorizontally();
+    markerRow.centerAlignContent();
+    markerRow.addSpacer();
+    const marker = largeMarker(cell);
+    if (marker?.type === "label") {
+      addText(markerRow, marker.label, designTokens.statusFont, marker.tone, true);
+    } else if (marker?.type === "dot") {
+      const dot = markerRow.addStack();
+      dot.size = new Size(designTokens.layout.largeMarkerSize, designTokens.layout.largeMarkerSize);
+      dot.backgroundColor = colorToken(marker.tone);
+      dot.cornerRadius = designTokens.radius.marker;
+    }
+    markerRow.addSpacer();
+    box.addSpacer();
+  }
+
   function addLargeCalendarGrid(widget, vm) {
     const weeks = largeCalendarWeeks(vm);
-    weeks.forEach((week, weekIndex) => {
-      const row = widget.addStack();
-      row.layoutHorizontally();
-      week.forEach((cell, index) => {
-        const box = row.addStack();
-        box.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeCellHeight);
-        box.layoutVertically();
-        box.centerAlignContent();
-        box.addSpacer();
-        const dateRow = box.addStack();
-        dateRow.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeDateHeight);
-        dateRow.layoutHorizontally();
-        dateRow.centerAlignContent();
-        dateRow.addSpacer();
-        const dateBox = dateRow.addStack();
-        dateBox.layoutHorizontally();
-        dateBox.centerAlignContent();
-        dateBox.setPadding(
-          0,
-          designTokens.layout.largeDateHorizontalPadding,
-          0,
-          designTokens.layout.largeDateHorizontalPadding,
-        );
-        if (cell.isToday) {
-          dateBox.borderWidth = designTokens.layout.todayBorderWidth;
-          dateBox.borderColor = colorToken("pulsePurple");
-          dateBox.cornerRadius = designTokens.radius.today;
+    const grid = widget.addStack();
+    grid.layoutHorizontally();
+    for (let columnIndex = 0; columnIndex < 7; columnIndex += 1) {
+      const column = addFlexibleLargeColumn(grid);
+      weeks.forEach((week, weekIndex) => {
+        addLargeDayCell(column, week[columnIndex]);
+        if (weekIndex < weeks.length - 1) {
+          column.addSpacer(designTokens.spacing.largeCalendarRow);
         }
-        const dateText = addText(
-          dateBox,
-          cell.number,
-          designTokens.largeCalendarFont,
-          cell.isToday ? "primaryText" : largeStateTone(cell),
-          true,
-        );
-        dateText.minimumScaleFactor = 1;
-        dateRow.addSpacer();
-        const markerRow = box.addStack();
-        markerRow.size = new Size(designTokens.layout.largeCellWidth, designTokens.layout.largeMarkerHeight);
-        markerRow.layoutHorizontally();
-        markerRow.centerAlignContent();
-        markerRow.addSpacer();
-        const marker = largeMarker(cell);
-        if (marker?.type === "label") {
-          addText(markerRow, marker.label, designTokens.statusFont, marker.tone, true);
-        } else if (marker?.type === "dot") {
-          const dot = markerRow.addStack();
-          dot.size = new Size(designTokens.layout.largeMarkerSize, designTokens.layout.largeMarkerSize);
-          dot.backgroundColor = colorToken(marker.tone);
-          dot.cornerRadius = designTokens.radius.marker;
-        }
-        markerRow.addSpacer();
-        box.addSpacer();
-        if (index < 6) row.addSpacer();
       });
-      if (weekIndex < weeks.length - 1) widget.addSpacer(designTokens.spacing.largeCalendarRow);
-    });
+    }
   }
 
   function addLargeFooter(widget, vm) {
@@ -811,7 +846,7 @@
     widget.addSpacer(designTokens.spacing.largeHeaderToStats);
     addLargeSummary(widget, vm);
     widget.addSpacer(designTokens.spacing.largeStatsToWeekday);
-    addWeekdayHeader(widget, vm, designTokens.layout.largeCellWidth, true);
+    addLargeWeekdayHeader(widget, vm);
     widget.addSpacer(designTokens.spacing.largeWeekdayToGrid);
     addLargeCalendarGrid(widget, vm);
     widget.addSpacer();

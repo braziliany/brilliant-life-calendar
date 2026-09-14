@@ -1,7 +1,13 @@
 (function registerPulseCalendarCore(global) {
   "use strict";
 
-  const APP_VERSION = "0.1.0";
+  const RELEASE_METADATA_JSON = `{"version":"0.1.1","notes":["Large 月历改用原生七列等分布局","安装器新增版本识别、更新与重装流程"]}`;
+  const RELEASE_METADATA = Object.freeze((() => {
+    const metadata = JSON.parse(RELEASE_METADATA_JSON);
+    return { ...metadata, notes: Object.freeze([...metadata.notes]) };
+  })());
+  const VERSION = RELEASE_METADATA.version;
+  const APP_VERSION = VERSION;
   const SCHEMA_VERSION = "1.0";
   const TIME_ZONE = "Asia/Shanghai";
   const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
@@ -217,6 +223,9 @@
   }
 
   global.__PulseCalendarCore = {
+    RELEASE_METADATA_JSON,
+    RELEASE_METADATA,
+    VERSION,
     APP_VERSION,
     SCHEMA_VERSION,
     TIME_ZONE,
